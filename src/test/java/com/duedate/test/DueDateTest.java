@@ -1,5 +1,6 @@
 package com.duedate.test;
 
+import com.duedate.config.TrackingConfig;
 import com.duedate.io.DueDateParser;
 import com.duedate.io.DueDateStorage;
 import com.duedate.model.DeadlineStatus;
@@ -29,6 +30,7 @@ public class DueDateTest {
         testParserRoundTrip();
         testParserOutOfOrder();
         testUserSnippet();
+        testTrackingConfig();
         testCollisionDetection();
         testRelativeOffsetCalculation();
         testDeadlineStatusProximity();
@@ -81,6 +83,7 @@ public class DueDateTest {
         assertTrue("Serialized contains [deadline]", serialized.contains("[deadline]"));
         assertTrue("Serialized contains [person]", serialized.contains("[person]"));
         assertTrue("Serialized contains [description]", serialized.contains("[description]"));
+        assertTrue("Serialized contains [created]", serialized.contains("[created]"));
 
         DueDateItem parsed = DueDateParser.parse(serialized, "team_sync.dd", zone);
         assertEquals("Parsed title matches", "Team Sync", parsed.getTitle());
@@ -130,6 +133,48 @@ zed-dead"
         assertEquals("Person parsed with newline inside quotes", "zed-dead", parsed.getPerson());
         assertEquals("Since parsed", Instant.parse("2026-11-08T03:00:00Z"), parsed.getSince());
         assertEquals("Deadline parsed with double spaces", Instant.parse("2026-11-08T05:01:00Z"), parsed.getDeadline());
+    }
+
+    private static void testTrackingConfig() {
+        System.out.println("\nTesting TrackingConfig (.tracked / tracked.conf):");
+        try {
+            Path tempDir = Files.createTempDirectory("duedate_tracking_test");
+            Path confFile = tempDir.resolve("tracked.conf");
+
+            String raw = """
+                    [mute]
+                    file1.dd, file4.dd
+                    file9-11.dd
+                    // exclude the one line comment "//" or just "#" at the start of the line only
+                    // notice that the separators are both the coma and the '\\n' new line too (yup both)
+                    [untrack]
+                    file2.dd
+                    # note 1
+                    file7elaven.dd  ,dodo.dd
+                    """;
+            Files.writeString(confFile, raw);
+
+            TrackingConfig config = new TrackingConfig(tempDir);
+
+            assertTrue("file1.dd is muted", config.isMuted("file1.dd"));
+            assertTrue("file4.dd is muted", config.isMuted("file4.dd"));
+            assertTrue("file9-11.dd is muted", config.isMuted("file9-11.dd"));
+            assertTrue("file2.dd is untracked", config.isUntracked("file2.dd"));
+            assertTrue("file7elaven.dd is untracked", config.isUntracked("file7elaven.dd"));
+            assertTrue("dodo.dd is untracked", config.isUntracked("dodo.dd"));
+            assertTrue("file1.dd is not untracked", !config.isUntracked("file1.dd"));
+            assertTrue("dodo.dd is not muted", !config.isMuted("dodo.dd"));
+
+            // Test programmatic toggle
+            config.setMuted("file2.dd", true);
+            assertTrue("file2.dd is now muted after toggle", config.isMuted("file2.dd"));
+
+            config.setUntracked("file2.dd", false);
+            assertTrue("file2.dd is no longer untracked after toggle", !config.isUntracked("file2.dd"));
+
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static void testCollisionDetection() {

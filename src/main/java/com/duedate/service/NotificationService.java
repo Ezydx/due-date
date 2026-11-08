@@ -77,6 +77,9 @@ public class NotificationService {
         List<DueDateItem> thisWeekItems = new ArrayList<>();
 
         for (DueDateItem item : items) {
+            if (storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName())) {
+                continue; // Muted items do not trigger alerts
+            }
             DeadlineStatus status = item.getStatus(now, zone);
             if (status == DeadlineStatus.OVERDUE && config.isNotifyOverdue()) {
                 overdueItems.add(item);
@@ -120,6 +123,9 @@ public class NotificationService {
         List<DueDateItem> urgentItems = new ArrayList<>();
 
         for (DueDateItem item : items) {
+            if (storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName())) {
+                continue; // Muted items do not trigger periodic alerts
+            }
             DeadlineStatus status = item.getStatus(now, zone);
             boolean isEligible = false;
 
@@ -141,11 +147,46 @@ public class NotificationService {
         if (!urgentItems.isEmpty()) {
             DueDateItem first = urgentItems.get(0);
             String title = storage.getDisplayTitle(first);
+            String timing = formatClampedDuration(first.getDeadline(), now);
             String msg = (urgentItems.size() == 1)
-                    ? title + " is due! (" + first.getRemainingFormatted(now) + ")"
+                    ? title + " (" + timing + ")"
                     : title + " and " + (urgentItems.size() - 1) + " other deadline(s) require attention!";
 
             notifyUser("Deadline Reminder", msg, TrayIcon.MessageType.WARNING);
+        }
+    }
+
+    /**
+     * Clamps remaining duration into clean, natural user-facing text
+     * (e.g. "due in ~1 hour" or "overdue by 15m" instead of odd numbers like "1 hour and 2 minutes").
+     */
+    private String formatClampedDuration(Instant target, Instant now) {
+        if (target == null) return "no deadline";
+        Duration d = Duration.between(now, target);
+        boolean isPast = d.isNegative();
+        d = d.abs();
+        long totalMins = d.toMinutes();
+
+        if (isPast) {
+            if (totalMins < 60) {
+                return "overdue by " + totalMins + "m";
+            }
+            long hours = (totalMins + 5) / 60;
+            return "overdue by ~" + hours + (hours == 1 ? " hour" : " hours");
+        } else {
+            if (totalMins < 60) {
+                return "due in " + totalMins + "m";
+            }
+            long hours = totalMins / 60;
+            long remMins = totalMins % 60;
+            if (remMins <= 5) {
+                return "due in " + hours + (hours == 1 ? " hour" : " hours");
+            } else if (remMins >= 55) {
+                return "due in " + (hours + 1) + " hours";
+            } else {
+                long clampedMins = Math.round(remMins / 5.0) * 5;
+                return "due in " + hours + "h " + clampedMins + "m";
+            }
         }
     }
 

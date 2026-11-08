@@ -16,6 +16,8 @@ public class DueDateItem {
     private Instant deadline;       // due date/time
     private String person;          // person tag (default "Guest")
     private String description;     // notes / description
+    private Instant createdAt;      // creation timestamp metadata
+    private int intrinsicIndex = 0; // permanent creation order index
 
     public DueDateItem() {
         this.title = "";
@@ -24,19 +26,27 @@ public class DueDateItem {
         this.person = "Guest";
         this.description = "";
         this.fileName = "";
+        this.createdAt = Instant.now();
     }
 
     public DueDateItem(String title, Instant since, Instant deadline, String person, String description, String fileName) {
+        this(title, since, deadline, person, description, fileName, Instant.now());
+    }
+
+    public DueDateItem(String title, Instant since, Instant deadline, String person, String description, String fileName, Instant createdAt) {
         this.title = title != null ? title.trim() : "";
         this.since = since != null ? since : Instant.now();
         this.deadline = deadline != null ? deadline : Instant.now();
         this.person = (person != null && !person.trim().isEmpty()) ? person.trim() : "Guest";
         this.description = description != null ? description : "";
         this.fileName = fileName != null ? fileName.trim() : "";
+        this.createdAt = createdAt != null ? createdAt : Instant.now();
     }
 
     public DueDateItem copy() {
-        return new DueDateItem(title, since, deadline, person, description, fileName);
+        DueDateItem cp = new DueDateItem(title, since, deadline, person, description, fileName, createdAt);
+        cp.setIntrinsicIndex(this.intrinsicIndex);
+        return cp;
     }
 
     public String getFileName() {
@@ -87,6 +97,22 @@ public class DueDateItem {
         this.description = description;
     }
 
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public int getIntrinsicIndex() {
+        return intrinsicIndex;
+    }
+
+    public void setIntrinsicIndex(int intrinsicIndex) {
+        this.intrinsicIndex = intrinsicIndex;
+    }
+
     public DeadlineStatus getStatus(Instant now, ZoneId zone) {
         return DeadlineStatus.from(deadline, now, zone);
     }
@@ -114,7 +140,7 @@ public class DueDateItem {
         if (isPast) {
             sb.append("Overdue by ");
         } else {
-            sb.append("In ");
+            sb.append("Due in ");
         }
 
         if (days > 0) {

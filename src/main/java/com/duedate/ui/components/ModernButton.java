@@ -22,11 +22,16 @@ public class ModernButton extends JButton {
     private int cornerRadius = 8;
 
     public ModernButton(String text) {
-        this(text, ButtonStyle.SECONDARY);
+        this(text, null, ButtonStyle.SECONDARY);
     }
 
     public ModernButton(String text, ButtonStyle style) {
+        this(text, null, style);
+    }
+
+    public ModernButton(String text, Icon icon, ButtonStyle style) {
         super(text);
+        if (icon != null) setIcon(icon);
         this.style = style;
         setFont(Theme.FONT_MEDIUM);
         setFocusPainted(false);
@@ -34,7 +39,8 @@ public class ModernButton extends JButton {
         setContentAreaFilled(false);
         setOpaque(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setMargin(new Insets(8, 16, 8, 16));
+        setMargin(new Insets(8, 14, 8, 14));
+        setIconTextGap(6);
 
         addMouseListener(new MouseAdapter() {
             @Override
@@ -112,14 +118,35 @@ public class ModernButton extends JButton {
             g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, cornerRadius, cornerRadius);
         }
 
-        // Draw text
+        // Draw Icon and Text
+        Icon icon = getIcon();
+        String text = getText();
+        boolean hasIcon = icon != null;
+        boolean hasText = text != null && !text.isEmpty();
+
         g2.setFont(getFont());
         FontMetrics fm = g2.getFontMetrics();
-        int textX = (getWidth() - fm.stringWidth(getText())) / 2;
-        int textY = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
 
-        g2.setColor(fg);
-        g2.drawString(getText(), textX, textY);
+        int iconW = hasIcon ? icon.getIconWidth() : 0;
+        int iconH = hasIcon ? icon.getIconHeight() : 0;
+        int gap = (hasIcon && hasText) ? getIconTextGap() : 0;
+        int textW = hasText ? fm.stringWidth(text) : 0;
+        int totalWidth = iconW + gap + textW;
+
+        int startX = (getWidth() - totalWidth) / 2;
+        int currentX = startX;
+
+        if (hasIcon) {
+            int iconY = (getHeight() - iconH) / 2;
+            icon.paintIcon(this, g2, currentX, iconY);
+            currentX += iconW + gap;
+        }
+
+        if (hasText) {
+            int textY = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+            g2.setColor(fg);
+            g2.drawString(text, currentX, textY);
+        }
 
         g2.dispose();
     }

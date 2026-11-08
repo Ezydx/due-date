@@ -1,5 +1,6 @@
 package com.duedate.io;
 
+import com.duedate.config.TrackingConfig;
 import com.duedate.model.DueDateItem;
 
 import java.io.File;
@@ -8,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Stream;
@@ -19,13 +22,24 @@ public class DueDateStorage {
 
     private final Path storageDirectory;
     private final ZoneId zone;
+    private final TrackingConfig trackingConfig;
     private final List<DueDateItem> items = new ArrayList<>();
     private final Map<String, Integer> titleCounts = new HashMap<>();
 
     public DueDateStorage(Path storageDirectory, ZoneId zone) {
+        this(storageDirectory, zone, null);
+    }
+
+    public DueDateStorage(Path storageDirectory, ZoneId zone, TrackingConfig trackingConfig) {
         this.storageDirectory = storageDirectory;
         this.zone = (zone != null) ? zone : ZoneId.systemDefault();
+        Path baseDir = (storageDirectory.getParent() != null) ? storageDirectory.getParent() : storageDirectory;
+        this.trackingConfig = (trackingConfig != null) ? trackingConfig : new TrackingConfig(baseDir);
         ensureDirectoryExists();
+    }
+
+    public TrackingConfig getTrackingConfig() {
+        return trackingConfig;
     }
 
     public Path getStorageDirectory() {
@@ -45,10 +59,14 @@ public class DueDateStorage {
     /**
      * Loads all .dd (and .dd.txt) files from storageDirectory, subdirectories,
      * and parent folder if placed directly in DueDates/.
+     * Untracked files are skipped.
      */
     public synchronized List<DueDateItem> loadAll() {
         items.clear();
         ensureDirectoryExists();
+
+        // Refresh tracking configurations
+        trackingConfig.load();
 
         Set<Path> scannedPaths = new HashSet<>();
 
@@ -62,6 +80,12 @@ public class DueDateStorage {
                 stream.filter(this::isCandidateFile)
                       .forEach(p -> loadCandidatePath(p, scannedPaths));
             } catch (IOException ignored) {}
+        }
+
+        // Sort items by creation time to assign permanent intrinsic index
+        items.sort(Comparator.comparing(DueDateItem::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        for (int i = 0; i < items.size(); i++) {
+            items.get(i).setIntrinsicIndex(i + 1);
         }
 
         recalculateTitleCounts();
@@ -80,7 +104,11 @@ public class DueDateStorage {
 
     private boolean isCandidateFile(Path p) {
         if (!Files.isRegularFile(p)) return false;
-        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+        String rawName = p.getFileName().toString();
+        if (trackingConfig.isUntracked(rawName)) {
+            return false;
+        }
+        String name = rawName.toLowerCase(Locale.ROOT);
         return name.endsWith(".dd") || name.endsWith(".dd.txt");
     }
 
@@ -110,6 +138,21 @@ public class DueDateStorage {
             String content = Files.readString(path, StandardCharsets.UTF_8);
             String fileName = path.getFileName().toString();
             DueDateItem item = DueDateParser.parse(content, fileName, zone);
+
+            // Fallback for creation time from file attributes if missing
+            if (item.getCreatedAt() == null) {
+                try {
+                    BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
+                    Instant t = attrs.creationTime().toInstant();
+                    if (t.toEpochMilli() <= 0) {
+                        t = attrs.lastModifiedTime().toInstant();
+                    }
+                    item.setCreatedAt(t);
+                } catch (Exception ignored) {
+                    item.setCreatedAt(Instant.now());
+                }
+            }
+
             items.add(item);
         } catch (Exception e) {
             System.err.println("Error parsing file " + path + ": " + e.getMessage());

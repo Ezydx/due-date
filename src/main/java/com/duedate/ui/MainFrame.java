@@ -11,6 +11,7 @@ import com.duedate.ui.components.ModernButton;
 import com.duedate.ui.components.ModernCard;
 import com.duedate.ui.components.ModernTable;
 import com.duedate.ui.components.SearchBar;
+import com.duedate.ui.components.VectorIcon;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -52,7 +53,7 @@ public class MainFrame extends JFrame {
     private List<DueDateItem> allItems = new ArrayList<>();
 
     public MainFrame(AppConfig config, DueDateStorage storage, NotificationService notificationService, File jarFile, ZoneId zone) {
-        super("DueDate");
+        super("DueDate v1.1.0");
         this.config = config;
         this.storage = storage;
         this.notificationService = notificationService;
@@ -159,9 +160,7 @@ public class MainFrame extends JFrame {
         JPanel titleLogoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         titleLogoPanel.setOpaque(false);
 
-        JLabel logoLabel = new JLabel("⌛");
-        logoLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 24));
-        logoLabel.setForeground(Theme.accent());
+        JLabel logoLabel = new JLabel(new VectorIcon(VectorIcon.IconType.HOURGLASS, 22, Theme.accent()));
 
         JLabel appTitle = new JLabel("DueDate");
         appTitle.setFont(Theme.FONT_HEADER);
@@ -180,25 +179,25 @@ public class MainFrame extends JFrame {
         JPanel actionBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actionBtns.setOpaque(false);
 
-        ModernButton newBtn = new ModernButton("+ New Deadline", ModernButton.ButtonStyle.PRIMARY);
+        ModernButton newBtn = new ModernButton("New Deadline", new VectorIcon(VectorIcon.IconType.PLUS, 13, Color.WHITE), ModernButton.ButtonStyle.PRIMARY);
         newBtn.addActionListener(e -> openNewDeadlineDialog());
         actionBtns.add(newBtn);
 
-        ModernButton calendarBtn = new ModernButton("📅 Calendar", ModernButton.ButtonStyle.SECONDARY);
+        ModernButton calendarBtn = new ModernButton("Calendar", new VectorIcon(VectorIcon.IconType.CALENDAR, 14, Theme.textPrimary()), ModernButton.ButtonStyle.SECONDARY);
         calendarBtn.addActionListener(e -> openCalendarDialog());
         actionBtns.add(calendarBtn);
 
-        ModernButton importBtn = new ModernButton("📁 Import", ModernButton.ButtonStyle.SECONDARY);
+        ModernButton importBtn = new ModernButton("Import", new VectorIcon(VectorIcon.IconType.IMPORT, 14, Theme.textPrimary()), ModernButton.ButtonStyle.SECONDARY);
         importBtn.setToolTipText("Import any external .dd file");
         importBtn.addActionListener(e -> openImportDialog());
         actionBtns.add(importBtn);
 
-        ModernButton refreshBtn = new ModernButton("↻", ModernButton.ButtonStyle.SECONDARY);
+        ModernButton refreshBtn = new ModernButton("", new VectorIcon(VectorIcon.IconType.REFRESH, 15, Theme.textPrimary()), ModernButton.ButtonStyle.SECONDARY);
         refreshBtn.setToolTipText("Reload files from disk");
         refreshBtn.addActionListener(e -> refreshData());
         actionBtns.add(refreshBtn);
 
-        ModernButton settingsBtn = new ModernButton("⚙", ModernButton.ButtonStyle.SECONDARY);
+        ModernButton settingsBtn = new ModernButton("", new VectorIcon(VectorIcon.IconType.SETTINGS, 15, Theme.textPrimary()), ModernButton.ButtonStyle.SECONDARY);
         settingsBtn.setToolTipText("Settings & Preferences");
         settingsBtn.addActionListener(e -> openSettingsDialog());
         actionBtns.add(settingsBtn);
@@ -330,7 +329,17 @@ public class MainFrame extends JFrame {
         duplicateItem.addActionListener(e -> duplicateSelectedItem());
         menu.add(duplicateItem);
 
-        JMenuItem deleteItem = new JMenuItem("Delete");
+        JMenuItem muteItem = new JMenuItem("Turn Off Overdues (Mute Reminders)");
+        muteItem.addActionListener(e -> toggleMuteSelectedItem());
+        menu.add(muteItem);
+
+        JMenuItem untrackItem = new JMenuItem("Untrack Deadline (Ignore File)");
+        untrackItem.addActionListener(e -> untrackSelectedItem());
+        menu.add(untrackItem);
+
+        menu.addSeparator();
+
+        JMenuItem deleteItem = new JMenuItem("Delete (Permanent)");
         deleteItem.addActionListener(e -> deleteSelectedItem());
         menu.add(deleteItem);
 
@@ -345,6 +354,8 @@ public class MainFrame extends JFrame {
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this, "Could not open folder: " + ex.getMessage());
                 }
+            } else {
+                showNoSelectionWarning();
             }
         });
         menu.add(openFileItem);
@@ -352,6 +363,23 @@ public class MainFrame extends JFrame {
         JMenuItem chimeItem = new JMenuItem("Test Bell Chime");
         chimeItem.addActionListener(e -> SoundService.ringBell());
         menu.add(chimeItem);
+
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                DueDateItem item = table.getSelectedItem();
+                if (item != null && storage.getTrackingConfig() != null) {
+                    boolean isMuted = storage.getTrackingConfig().isMuted(item.getFileName());
+                    muteItem.setText(isMuted ? "Turn On Reminders (Unmute)" : "Turn Off Overdues (Mute Reminders)");
+                } else {
+                    muteItem.setText("Turn Off Overdues (Mute Reminders)");
+                }
+            }
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+        });
 
         table.setComponentPopupMenu(menu);
     }
@@ -449,6 +477,20 @@ public class MainFrame extends JFrame {
                 } else if (!fn.toLowerCase(Locale.ROOT).endsWith(".dd")) {
                     fn = fn + ".dd";
                 }
+
+                if (storage.getTrackingConfig() != null && storage.getTrackingConfig().isUntracked(fn)) {
+                    int retrackChoice = JOptionPane.showConfirmDialog(
+                            this,
+                            "The file '" + fn + "' is currently marked as Untracked in your tracking configuration.\nWould you like to re-track it?",
+                            "Re-track File?",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE
+                    );
+                    if (retrackChoice == JOptionPane.YES_OPTION) {
+                        storage.getTrackingConfig().setUntracked(fn, false);
+                    }
+                }
+
                 DueDateItem imported = DueDateParser.parse(content, fn, zone);
                 storage.save(imported, null);
                 refreshData();
@@ -457,6 +499,10 @@ public class MainFrame extends JFrame {
                 JOptionPane.showMessageDialog(this, "Failed to import file: " + ex.getMessage(), "Import Error", JOptionPane.ERROR_MESSAGE);
             }
         }
+    }
+
+    private void showNoSelectionWarning() {
+        JOptionPane.showMessageDialog(this, "Please select a deadline from the list first.", "No Deadline Selected", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void openNewDeadlineDialog() {
@@ -469,7 +515,10 @@ public class MainFrame extends JFrame {
 
     private void editSelectedItem() {
         DueDateItem selected = table.getSelectedItem();
-        if (selected == null) return;
+        if (selected == null) {
+            showNoSelectionWarning();
+            return;
+        }
 
         DeadlineDialog dialog = new DeadlineDialog(this, storage, config, selected, zone);
         dialog.setVisible(true);
@@ -480,11 +529,15 @@ public class MainFrame extends JFrame {
 
     private void duplicateSelectedItem() {
         DueDateItem selected = table.getSelectedItem();
-        if (selected == null) return;
+        if (selected == null) {
+            showNoSelectionWarning();
+            return;
+        }
 
         DueDateItem copy = selected.copy();
         copy.setTitle(selected.getTitle() + " (Copy)");
         copy.setFileName(DueDateStorage.sanitizeFileName(copy.getTitle()) + ".dd");
+        copy.setCreatedAt(Instant.now());
 
         try {
             storage.save(copy, null);
@@ -494,13 +547,60 @@ public class MainFrame extends JFrame {
         }
     }
 
+    private void toggleMuteSelectedItem() {
+        DueDateItem selected = table.getSelectedItem();
+        if (selected == null) {
+            showNoSelectionWarning();
+            return;
+        }
+
+        boolean currentMute = storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(selected.getFileName());
+        boolean newMute = !currentMute;
+        if (storage.getTrackingConfig() != null) {
+            storage.getTrackingConfig().setMuted(selected.getFileName(), newMute);
+        }
+        refreshData();
+
+        String statusMsg = newMute
+                ? "Turned off reminders for '" + storage.getDisplayTitle(selected) + "'. Reminders for this item are now muted."
+                : "Turned on reminders for '" + storage.getDisplayTitle(selected) + "'. Reminders will now alert normally.";
+        JOptionPane.showMessageDialog(this, statusMsg, "Reminder Status Updated", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void untrackSelectedItem() {
+        DueDateItem selected = table.getSelectedItem();
+        if (selected == null) {
+            showNoSelectionWarning();
+            return;
+        }
+
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to untrack '" + storage.getDisplayTitle(selected) + "' (" + selected.getFileName() + ")?\n\nThe .dd file will remain safely on disk, but DueDate will ignore it until you re-track it.",
+                "Confirm Untrack",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+
+        if (choice == JOptionPane.YES_OPTION) {
+            if (storage.getTrackingConfig() != null) {
+                storage.getTrackingConfig().setUntracked(selected.getFileName(), true);
+            }
+            refreshData();
+            JOptionPane.showMessageDialog(this, "'" + selected.getFileName() + "' is now untracked.", "Untracked", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
     private void deleteSelectedItem() {
         DueDateItem selected = table.getSelectedItem();
-        if (selected == null) return;
+        if (selected == null) {
+            showNoSelectionWarning();
+            return;
+        }
 
         int res = JOptionPane.showConfirmDialog(
                 this,
-                "Are you sure you want to delete '" + storage.getDisplayTitle(selected) + "' (" + selected.getFileName() + ")?",
+                "Are you sure you want to permanently delete '" + storage.getDisplayTitle(selected) + "' (" + selected.getFileName() + ")?",
                 "Confirm Delete",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE
@@ -518,10 +618,10 @@ public class MainFrame extends JFrame {
     }
 
     private void openSettingsDialog() {
-        SettingsDialog dialog = new SettingsDialog(this, config, jarFile, () -> {
+        SettingsDialog dialog = new SettingsDialog(this, config, storage, jarFile, () -> {
             // Callback when settings updated
             if (!storage.getStorageDirectory().equals(config.getDataFolder())) {
-                storage = new DueDateStorage(config.getDataFolder(), zone);
+                storage = new DueDateStorage(config.getDataFolder(), zone, storage.getTrackingConfig());
             }
             table.updateVisibleColumns(config.getVisibleColumns());
             refreshData();

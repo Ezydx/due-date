@@ -54,10 +54,49 @@ public class ModernTable extends JTable {
         setShowGrid(false);
         setIntercellSpacing(new Dimension(0, 0));
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
 
         setupHeader();
         setupRenderers();
+    }
+
+    @Override
+    public String getToolTipText(java.awt.event.MouseEvent e) {
+        int row = rowAtPoint(e.getPoint());
+        if (row >= 0 && row < model.getRowCount()) {
+            DueDateItem item = model.getItemAt(row);
+            if (item != null) {
+                boolean muted = storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName());
+                Instant now = Instant.now();
+                DeadlineStatus status = item.getStatus(now, zone);
+                String title = storage.getDisplayTitle(item);
+                String sinceStr = DueDateParser.formatDate(item.getSince(), zone);
+                String deadlineStr = DueDateParser.formatDate(item.getDeadline(), zone);
+                String remaining = item.getRemainingFormatted(now);
+                String desc = item.getDescription();
+                if (desc == null || desc.isBlank()) desc = "(No description)";
+
+                return "<html><div style='padding:6px; font-family: Segoe UI, sans-serif; font-size:12px;'>" +
+                        "<b style='font-size:13px; color:#4F46E5;'>" + escapeHtml(title) + "</b> " + (muted ? "<span style='color:#EF4444;'>[Muted 🔕]</span>" : "") + "<br/>" +
+                        "<span style='color:#6B7280;'>File: " + escapeHtml(item.getFileName()) + " | Person: " + escapeHtml(item.getPerson()) + " | #" + item.getIntrinsicIndex() + "</span><hr style='border:0; border-top:1px solid #D1D5DB; margin:4px 0;'/>" +
+                        "<b>Start (Since):</b> " + sinceStr + "<br/>" +
+                        "<b>Deadline:</b> " + deadlineStr + " <span style='color:" + toHex(status.getBadgeColor()) + ";'>(" + remaining + ")</span><br/>" +
+                        "<b>Status:</b> " + status.getLabel() + "<br/>" +
+                        "<b>Description:</b><br/>" +
+                        "<div style='max-width:340px; margin-top:2px; white-space:pre-wrap; color:#374151;'>" + escapeHtml(desc) + "</div>" +
+                        "</div></html>";
+            }
+        }
+        return super.getToolTipText(e);
+    }
+
+    private static String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    private static String toHex(Color c) {
+        return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
     }
 
     private void setupHeader() {
@@ -78,7 +117,8 @@ public class ModernTable extends JTable {
             ));
 
             String text = (value != null) ? value.toString() : "";
-            if (column == sortColumnIndex) {
+            int modelCol = table.convertColumnIndexToModel(column);
+            if (modelCol == sortColumnIndex) {
                 text += sortAscending ? "  ▲" : "  ▼";
             }
             label.setText(text);
@@ -88,12 +128,13 @@ public class ModernTable extends JTable {
         header.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                int col = header.columnAtPoint(e.getPoint());
-                if (col >= 0) {
-                    if (sortColumnIndex == col) {
+                int viewCol = header.columnAtPoint(e.getPoint());
+                if (viewCol >= 0) {
+                    int modelCol = convertColumnIndexToModel(viewCol);
+                    if (sortColumnIndex == modelCol) {
                         sortAscending = !sortAscending;
                     } else {
-                        sortColumnIndex = col;
+                        sortColumnIndex = modelCol;
                         sortAscending = true;
                     }
                     model.sortItems();
@@ -110,20 +151,30 @@ public class ModernTable extends JTable {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
+                DueDateItem item = model.getItemAt(row);
+                boolean muted = item != null && storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName());
+
                 if (isSelected) {
                     c.setBackground(Theme.accent().darker());
                     c.setForeground(Color.WHITE);
                 } else {
                     c.setBackground(row % 2 == 0 ? Theme.surface() : Theme.bg());
-                    c.setForeground(Theme.textPrimary());
+                    if (muted) {
+                        c.setForeground(new Color(156, 163, 175)); // Muted dimmed text
+                    } else {
+                        c.setForeground(Theme.textPrimary());
+                    }
                 }
 
-                // Gray text for Index and Description preview
                 String colName = table.getColumnName(column);
                 if (!isSelected) {
                     if (COL_INDEX.equals(colName) || COL_DESCRIPTION.equals(colName)) {
-                        c.setForeground(Theme.textSecondary());
+                        c.setForeground(muted ? new Color(120, 125, 135) : Theme.textSecondary());
                     }
+                }
+
+                if (COL_TITLE.equals(colName) && muted) {
+                    setText(getText() + "  [Muted 🔕]");
                 }
 
                 return c;
@@ -136,6 +187,7 @@ public class ModernTable extends JTable {
             Instant now = Instant.now();
             DeadlineStatus status = (value instanceof DeadlineStatus ds) ? ds : (item != null ? item.getStatus(now, zone) : DeadlineStatus.FUTURE);
             String remaining = (item != null) ? item.getRemainingFormatted(now) : "";
+            boolean muted = item != null && storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName());
 
             JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 8)) {
                 @Override
@@ -150,12 +202,15 @@ public class ModernTable extends JTable {
             panel.setOpaque(!isSelected);
             panel.setBackground(row % 2 == 0 ? Theme.surface() : Theme.bg());
 
-            JLabel badge = new JLabel(" " + status.getLabel() + " (" + remaining + ") ") {
+            Color badgeBg = muted ? new Color(107, 114, 128) : status.getBadgeColor();
+            String labelText = muted ? " [Muted] " + status.getLabel() : " " + status.getLabel() + " (" + remaining + ") ";
+
+            JLabel badge = new JLabel(labelText) {
                 @Override
                 protected void paintComponent(Graphics g) {
                     Graphics2D g2 = (Graphics2D) g.create();
                     Theme.applyAntiAliasing(g2);
-                    g2.setColor(status.getBadgeColor());
+                    g2.setColor(badgeBg);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                     g2.dispose();
                     super.paintComponent(g);
@@ -163,7 +218,7 @@ public class ModernTable extends JTable {
             };
             badge.setOpaque(false);
             badge.setFont(Theme.FONT_SMALL);
-            badge.setForeground(status.getTextColor());
+            badge.setForeground(Color.WHITE);
             badge.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
 
             panel.add(badge);
@@ -176,21 +231,41 @@ public class ModernTable extends JTable {
         model.fireTableStructureChanged();
         setupHeader();
 
-        // Adjust column widths
+        // Adjust column minimum and preferred widths
         for (int i = 0; i < getColumnCount(); i++) {
             String name = getColumnName(i);
             TableColumn col = getColumnModel().getColumn(i);
+            col.setResizable(true);
             switch (name) {
                 case COL_INDEX -> {
-                    col.setPreferredWidth(45);
-                    col.setMaxWidth(60);
+                    col.setMinWidth(45);
+                    col.setMaxWidth(65);
+                    col.setPreferredWidth(50);
                 }
-                case COL_TITLE -> col.setPreferredWidth(180);
-                case COL_SINCE, COL_DEADLINE -> col.setPreferredWidth(160);
-                case COL_STATUS -> col.setPreferredWidth(190);
-                case COL_PERSON -> col.setPreferredWidth(90);
-                case COL_DESCRIPTION -> col.setPreferredWidth(200);
-                case COL_FILENAME -> col.setPreferredWidth(140);
+                case COL_TITLE -> {
+                    col.setMinWidth(120);
+                    col.setPreferredWidth(180);
+                }
+                case COL_SINCE, COL_DEADLINE -> {
+                    col.setMinWidth(135);
+                    col.setPreferredWidth(160);
+                }
+                case COL_STATUS -> {
+                    col.setMinWidth(140);
+                    col.setPreferredWidth(180);
+                }
+                case COL_PERSON -> {
+                    col.setMinWidth(70);
+                    col.setPreferredWidth(90);
+                }
+                case COL_DESCRIPTION -> {
+                    col.setMinWidth(120);
+                    col.setPreferredWidth(200);
+                }
+                case COL_FILENAME -> {
+                    col.setMinWidth(100);
+                    col.setPreferredWidth(130);
+                }
             }
         }
     }
@@ -246,7 +321,7 @@ public class ModernTable extends JTable {
             Instant now = Instant.now();
 
             Comparator<DueDateItem> comparator = switch (colName) {
-                case COL_INDEX -> Comparator.comparingInt(displayedItems::indexOf);
+                case COL_INDEX -> Comparator.comparingInt(DueDateItem::getIntrinsicIndex);
                 case COL_TITLE -> Comparator.comparing(it -> storage.getDisplayTitle(it).toLowerCase(Locale.ROOT));
                 case COL_SINCE -> Comparator.comparing(DueDateItem::getSince, Comparator.nullsLast(Comparator.naturalOrder()));
                 case COL_DEADLINE -> Comparator.comparing(DueDateItem::getDeadline, Comparator.nullsLast(Comparator.naturalOrder()));
@@ -254,7 +329,7 @@ public class ModernTable extends JTable {
                 case COL_PERSON -> Comparator.comparing(it -> it.getPerson().toLowerCase(Locale.ROOT));
                 case COL_DESCRIPTION -> Comparator.comparing(it -> it.getDescription().toLowerCase(Locale.ROOT));
                 case COL_FILENAME -> Comparator.comparing(it -> it.getFileName().toLowerCase(Locale.ROOT));
-                default -> Comparator.comparing(DueDateItem::getDeadline);
+                default -> Comparator.comparingInt(DueDateItem::getIntrinsicIndex);
             };
 
             if (!sortAscending) {
@@ -296,7 +371,7 @@ public class ModernTable extends JTable {
 
             switch (colName) {
                 case COL_INDEX -> {
-                    return String.valueOf(rowIndex + 1);
+                    return String.valueOf(item.getIntrinsicIndex());
                 }
                 case COL_TITLE -> {
                     // Includes disambiguating filename if collision exists

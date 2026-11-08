@@ -122,6 +122,11 @@ public class DueDateParser {
         String deadlineStr = formatDate(item.getDeadline(), activeZone);
         sb.append("[deadline] ").append(deadlineStr).append(" ").append(DELIMITER).append("\n");
 
+        // Created
+        Instant created = item.getCreatedAt() != null ? item.getCreatedAt() : Instant.now();
+        String createdStr = formatDate(created, activeZone);
+        sb.append("[created] ").append(createdStr).append(" ").append(DELIMITER).append("\n");
+
         // Person
         String person = item.getPerson();
         if (person == null || person.trim().isEmpty()) {
@@ -168,6 +173,7 @@ public class DueDateParser {
                     case "title" -> item.setTitle(value);
                     case "since" -> item.setSince(parseDate(value, zone));
                     case "deadline" -> item.setDeadline(parseDate(value, zone));
+                    case "created" -> item.setCreatedAt(parseDate(value, zone));
                     case "person", "user" -> item.setPerson(value.isEmpty() ? "Guest" : value);
                     case "description" -> item.setDescription(value);
                     default -> {

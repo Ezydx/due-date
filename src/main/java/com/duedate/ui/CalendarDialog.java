@@ -419,7 +419,8 @@ public class CalendarDialog extends JDialog {
         card.setBorder(new EmptyBorder(8, 10, 8, 10));
 
         // Header: title and collision name if any
-        String displayTitle = storage.getDisplayTitle(item);
+        boolean muted = storage.getTrackingConfig() != null && storage.getTrackingConfig().isMuted(item.getFileName());
+        String displayTitle = storage.getDisplayTitle(item) + (muted ? " [Muted 🔕]" : "");
         JLabel titleLbl = new JLabel(displayTitle);
         titleLbl.setFont(Theme.FONT_MEDIUM);
         titleLbl.setForeground(Theme.textPrimary());

@@ -23,6 +23,7 @@ import java.util.List;
 public class SettingsDialog extends JDialog {
 
     private final AppConfig config;
+    private final com.duedate.io.DueDateStorage storage;
     private final File jarFile;
     private final Runnable onSettingsUpdated;
 
@@ -37,16 +38,18 @@ public class SettingsDialog extends JDialog {
     private JTextField defaultPersonField;
     private JTextField dataFolderField;
     private JComboBox<String> themeCombo;
+    private JLabel trackingSummaryLabel;
 
     private final List<JCheckBox> columnCheckboxes = new ArrayList<>();
 
-    public SettingsDialog(Frame owner, AppConfig config, File jarFile, Runnable onSettingsUpdated) {
+    public SettingsDialog(Frame owner, AppConfig config, com.duedate.io.DueDateStorage storage, File jarFile, Runnable onSettingsUpdated) {
         super(owner, "DueDate Settings", true);
         this.config = config;
+        this.storage = storage;
         this.jarFile = jarFile;
         this.onSettingsUpdated = onSettingsUpdated;
 
-        setSize(650, 680);
+        setSize(650, 720);
         setLocationRelativeTo(owner);
         getContentPane().setBackground(Theme.bg());
 
@@ -176,6 +179,46 @@ public class SettingsDialog extends JDialog {
             colsCard.add(cb);
         }
         content.add(colsCard);
+        content.add(Box.createVerticalStrut(12));
+
+        // 5. Tracking & Muted Files (tracked.conf)
+        content.add(createSectionHeader("Tracking & Overdues (tracked.conf)"));
+        ModernCard trackCard = new ModernCard(8);
+        trackCard.setLayout(new BorderLayout(8, 6));
+        trackCard.setBorder(new EmptyBorder(10, 12, 10, 12));
+
+        trackingSummaryLabel = new JLabel();
+        trackingSummaryLabel.setFont(Theme.FONT_REGULAR);
+        trackingSummaryLabel.setForeground(Theme.textPrimary());
+        trackCard.add(trackingSummaryLabel, BorderLayout.CENTER);
+
+        JPanel trackBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        trackBtns.setOpaque(false);
+
+        ModernButton unmuteAllBtn = new ModernButton("Unmute All", ModernButton.ButtonStyle.SECONDARY);
+        unmuteAllBtn.addActionListener(e -> {
+            if (storage != null && storage.getTrackingConfig() != null) {
+                for (String f : new ArrayList<>(storage.getTrackingConfig().getMutedFiles())) {
+                    storage.getTrackingConfig().setMuted(f, false);
+                }
+                updateTrackingLabel();
+            }
+        });
+        trackBtns.add(unmuteAllBtn);
+
+        ModernButton retrackAllBtn = new ModernButton("Re-track All", ModernButton.ButtonStyle.SECONDARY);
+        retrackAllBtn.addActionListener(e -> {
+            if (storage != null && storage.getTrackingConfig() != null) {
+                for (String f : new ArrayList<>(storage.getTrackingConfig().getUntrackedFiles())) {
+                    storage.getTrackingConfig().setUntracked(f, false);
+                }
+                updateTrackingLabel();
+            }
+        });
+        trackBtns.add(retrackAllBtn);
+
+        trackCard.add(trackBtns, BorderLayout.SOUTH);
+        content.add(trackCard);
 
         JScrollPane scroll = new JScrollPane(content);
         scroll.setBorder(null);
@@ -228,6 +271,17 @@ public class SettingsDialog extends JDialog {
         List<String> visible = config.getVisibleColumns();
         for (JCheckBox cb : columnCheckboxes) {
             cb.setSelected(visible.contains(cb.getText()));
+        }
+        updateTrackingLabel();
+    }
+
+    private void updateTrackingLabel() {
+        if (storage != null && storage.getTrackingConfig() != null) {
+            int muted = storage.getTrackingConfig().getMutedFiles().size();
+            int untracked = storage.getTrackingConfig().getUntrackedFiles().size();
+            trackingSummaryLabel.setText(String.format("Muted (reminders off): %d file(s)  |  Untracked (ignored): %d file(s)", muted, untracked));
+        } else {
+            trackingSummaryLabel.setText("Tracking manager active.");
         }
     }
 
