@@ -1,0 +1,16 @@
+
+# the whole target/bin folders.
+/bin/
+/target/
+
+
+# temporary ignor especially the samples since they're gonna get modified anyway.
+/samples/
+
+# some file types.. like jars, the buld & run are kept since they're unchannged.
+*.jar
+
+# other futurestic folders like ignore and notes.
+ignore/
+notes/
+
